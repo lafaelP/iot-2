@@ -1,34 +1,41 @@
 #include <Arduino.h>
 #include <esp_now.h>
 #include <WiFi.h>
-#include <InfluxDbClient.h>
-#include <HTTPClient.h>
 #include <WiFiClient.h>
+#include <InfluxDbClient.h>
+#include <InfluxDbCloud.h>
 #include <PubSubClient.h>
 
-// Define the Wi-Fi and MQTT settings
-const char* WIFI_SSID = "WIR-Guest";
-const char* WIFI_PASSWORD = "Guest@WIRgroup";
-const char* MQTT_BROKER = "172.25.20.88"; // Replace with the IP address of your Raspberry Pi
-const int MQTT_PORT = 1883; // Default MQTT port is 1883
-const char* MQTT_USER = "lafaelpiMQTT";      // if you don't have MQTT Username, no need input
-const char* MQTT_PASSWORD = "lafaelpiMQTT";  // if you don't have MQTT Password, no need input
-
-// Replace with the MAC address of ESP32-A
 uint8_t esp32_A_MAC[] = {0xC8, 0xF0, 0x9E, 0xF2, 0x2F, 0x20};
-
-// Replace with the MAC address of ESP32-B
 uint8_t esp32_B_MAC[] = {0x94, 0xB9, 0x7E, 0xDA, 0x73, 0x74};
 
-// Structure for BME680 data
+const char* ssid = "WIR-Guest";
+const char* password = "Guest@WIRgroup";
+
+const char* MQTT_BROKER = "172.25.20.88"; 
+const int MQTT_PORT = 1883; 
+const char* MQTT_USER = "lafaelpiMQTT";      
+const char* MQTT_PASSWORD = "lafaelpiMQTT";  
+
+#define INFLUXDB_URL "https://us-east-1-1.aws.cloud2.influxdata.com"
+#define INFLUXDB_TOKEN "WsDF2EMLG0BX27qAxysiWA3t4VTPka2XGp2krlne5vbD5HPjpC4PSlGqDiZf3hF6WZ5zQIOys1bdC7H93q0OLw=="
+#define INFLUXDB_ORG "a11b07c582b5ad36"
+#define INFLUXDB_BUCKET "iot-2"
+#define TZ_INFO "WET0WEST,M3.5.0/1,M10.5.0"
+InfluxDBClient client(INFLUXDB_URL, INFLUXDB_ORG, INFLUXDB_BUCKET, INFLUXDB_TOKEN, InfluxDbCloud2CACert);
+Point sensorBMEReadings("BME measurements");
+Point sensorINAReadings("INA measurements");
+
 typedef struct struct_message_bme680 {
   float temperature;
   float humidity;
   float pressure;
 } struct_message_bme680;
 
-// Create a struct_message_bme680 called myData_bme680
+// Create a struct_message called myData
 struct_message_bme680 myData_bme680;
+
+float last_temperature, last_humidity, last_pressure;
 
 // Structure for INA219 data
 typedef struct struct_message_ina219 {
@@ -41,27 +48,17 @@ typedef struct struct_message_ina219 {
 // Create a struct_message_ina219 called myData_ina219
 struct_message_ina219 myData_ina219;
 
-// Wi-Fi client instance
-WiFiClient wifiClient;
+float last_busVoltage, last_current, last_power, last_shuntVoltage;
 
-// MQTT client instance
+WiFiClient wifiClient;
 PubSubClient mqttClient(wifiClient);
 
-// MQTT topic to publish data
 const char* MQTT_TOPIC = "esp32_data";
 
-// InfluxDB v2 server url, e.g. https://eu-central-1-1.aws.cloud2.influxdata.com (Use: InfluxDB UI -> Load Data -> Client Libraries)
-#define INFLUXDB_URL "https://us-east-1-1.aws.cloud2.influxdata.com"
-#define INFLUXDB_TOKEN "WsDF2EMLG0BX27qAxysiWA3t4VTPka2XGp2krlne5vbD5HPjpC4PSlGqDiZf3hF6WZ5zQIOys1bdC7H93q0OLw=="
-#define INFLUXDB_ORG "a11b07c582b5ad36"
-#define INFLUXDB_BUCKET "bme_ina"
-#define TZ_INFO "WET0WEST,M3.5.0/1,M10.5.0"
-InfluxDBClient influxClient(INFLUXDB_URL, INFLUXDB_ORG, INFLUXDB_BUCKET, INFLUXDB_TOKEN);
-
-
-void OnDataRecv(const uint8_t *mac_addr, const uint8_t *incomingData, int len) {
-  // Check the MAC address of the sender
-  if (memcmp(mac_addr, esp32_A_MAC, 6) == 0) {
+// callback function that will be executed when data is received
+void OnDataRecv(const uint8_t *mac, const uint8_t *incomingData, int len)
+{
+    if (memcmp(mac, esp32_A_MAC, 6) == 0) {
     // Data received from ESP32-A (BME680)
     memcpy(&myData_bme680, incomingData, sizeof(myData_bme680));
 
@@ -77,30 +74,12 @@ void OnDataRecv(const uint8_t *mac_addr, const uint8_t *incomingData, int len) {
     Serial.print(myData_bme680.pressure);
     Serial.println(" hPa");
 
-    // Write data to InfluxDB
-    Point sensorReadings("measurements");
-    sensorReadings.addTag("device", "ESP32");
-    sensorReadings.addTag("sensor", "BME680");
-    sensorReadings.addField("temperature", myData_bme680.temperature);
-    sensorReadings.addField("humidity", myData_bme680.humidity);
-    sensorReadings.addField("pressure", myData_bme680.pressure);
-    influxClient.writePoint(sensorReadings);
-
-   String jsonMessage = "{\"temperature\": " + String(myData_bme680.temperature) +
-                         ", \"humidity\": " + String(myData_bme680.humidity) +
-                         ", \"pressure\": " + String(myData_bme680.pressure) + "}";
-
-    // Convert JSON message to char array
-    char charMessage[jsonMessage.length() + 1];
-    jsonMessage.toCharArray(charMessage, sizeof(charMessage));
-
-    // Publish data to MQTT
-    mqttClient.publish(MQTT_TOPIC, charMessage);
-  } else if (memcmp(mac_addr, esp32_B_MAC, 6) == 0) {
+  
+  } else if (memcmp(mac, esp32_B_MAC, 6) == 0) {
     // Data received from ESP32-B (INA219)
     memcpy(&myData_ina219, incomingData, sizeof(myData_ina219));
 
-    // Print the received data from ESP32-B (INA219)
+    //Print the received data from ESP32-B (INA219)
     Serial.println("Data received from ESP32-B (INA219):");
     Serial.print("Bus Voltage: ");
     Serial.print(myData_ina219.busVoltage);
@@ -115,76 +94,107 @@ void OnDataRecv(const uint8_t *mac_addr, const uint8_t *incomingData, int len) {
     Serial.print(myData_ina219.shuntVoltage);
     Serial.println(" mV");
 
-    // Write data to InfluxDB
-    Point sensorReadings("measurements");
-    sensorReadings.addTag("device", "ESP32");
-    sensorReadings.addTag("sensor", "INA219");
-    sensorReadings.addField("busVoltage", myData_ina219.busVoltage);
-    sensorReadings.addField("current", myData_ina219.current);
-    sensorReadings.addField("power", myData_ina219.power);
-    sensorReadings.addField("shuntVoltage", myData_ina219.shuntVoltage);
-    influxClient.writePoint(sensorReadings);
+}
+}
 
-    // Publish data to MQTT
-    String jsonMessage = "{\"busVoltage\": " + String(myData_ina219.busVoltage) +
+void setup()
+{
+    Serial.begin(9600);
+    WiFi.mode(WIFI_AP_STA);
+
+    WiFi.begin(ssid, password);
+    while (WiFi.status() != WL_CONNECTED)
+    {
+        delay(1000);
+        Serial.println("Setting as a Wi-Fi Station..");
+    }
+    Serial.print("Station IP Address: ");
+    Serial.println(WiFi.localIP());
+    Serial.print("Wi-Fi Channel: ");
+    Serial.println(WiFi.channel());
+
+    mqttClient.setServer(MQTT_BROKER, MQTT_PORT);
+
+    timeSync(TZ_INFO, "pool.ntp.org", "time.nis.gov");
+
+    if (client.validateConnection())
+    {
+        Serial.print("Connected to InfluxDB: ");
+        Serial.println(client.getServerUrl());
+    }
+    else
+    {
+        Serial.print("InfluxDB connection failed: ");
+        Serial.println(client.getLastErrorMessage());
+    }
+
+    if (esp_now_init() != ESP_OK)
+    {
+        Serial.println("Error initializing ESP-NOW");
+        return;
+    }
+    Serial.println("esp now connected");
+    esp_now_register_recv_cb(OnDataRecv);
+}
+
+void loop()
+{
+    if (last_temperature != myData_bme680.temperature || last_humidity != myData_bme680.humidity || last_pressure != myData_bme680.pressure)
+    
+
+    {     
+        sensorBMEReadings.addField("Temperature", myData_bme680.temperature);
+        sensorBMEReadings.addField("Humidity", myData_bme680.humidity);
+        sensorBMEReadings.addField("Pressure", myData_bme680.pressure);
+
+        Serial.print("Writing: ");
+        Serial.println(client.pointToLineProtocol(sensorBMEReadings));
+        Serial.println();
+
+        client.writePoint(sensorBMEReadings);
+        sensorBMEReadings.clearFields();
+
+        String jsonMessage = "{\"temperature\": " + String(myData_bme680.temperature) +
+                         ", \"humidity\": " + String(myData_bme680.humidity) +
+                         ", \"pressure\": " + String(myData_bme680.pressure) + "}";
+
+        char charMessage[jsonMessage.length() + 1];
+        jsonMessage.toCharArray(charMessage, sizeof(charMessage));
+
+        mqttClient.publish(MQTT_TOPIC, charMessage);
+    
+    } else if (last_busVoltage != myData_ina219.busVoltage || last_current != myData_ina219.current || last_power != myData_ina219.power || last_shuntVoltage != myData_ina219.shuntVoltage)
+      {
+        sensorINAReadings.addField("busVoltage", myData_ina219.busVoltage);
+        sensorINAReadings.addField("Current", myData_ina219.current);
+        sensorINAReadings.addField("Power", myData_ina219.power);
+        sensorINAReadings.addField("ShuntVoltage", myData_ina219.shuntVoltage);
+
+        Serial.print("Writing: ");
+        Serial.println(client.pointToLineProtocol(sensorINAReadings));
+        Serial.println();
+
+        client.writePoint(sensorINAReadings);
+        sensorINAReadings.clearFields();
+
+        String jsonMessage = "{\"busVoltage\": " + String(myData_ina219.busVoltage) +
                          ", \"current\": " + String(myData_ina219.current) +
                          ", \"power\": " + String(myData_ina219.power) +
                          ", \"shuntVoltage\": " + String(myData_ina219.shuntVoltage) + "}";
 
-    // Convert JSON message to char array
-    char charMessage[jsonMessage.length() + 1];
-    jsonMessage.toCharArray(charMessage, sizeof(charMessage));
-
-    // Publish data to MQTT
-    mqttClient.publish(MQTT_TOPIC, charMessage);
-  }
-}
-
-void setup() {
-  // Initialize Serial Monitor
-  Serial.begin(9600);
-
-  // Set device as a Wi-Fi Station
-  WiFi.mode(WIFI_STA);
-
-  // Connect to Wi-Fi
-  WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
-  Serial.print("Connecting to Wi-Fi...");
-  while (WiFi.status() != WL_CONNECTED) {
-    delay(500);
-    Serial.print(".");
-  }
-  Serial.println();
-  Serial.print("Connected to Wi-Fi. IP address: ");
-  Serial.println(WiFi.localIP());
-
-  // Init ESP-NOW
-  if (esp_now_init() != ESP_OK) {
-    Serial.println("Error initializing ESP-NOW");
-    return;
-  }
-
-  // Set up MQTT client
-  mqttClient.setServer(MQTT_BROKER, MQTT_PORT);
-  // Optional: If your MQTT broker requires authentication, uncomment the next two lines and replace with your username and password
-  // mqttClient.setCredentials(MQTT_USER, MQTT_PASSWORD);
-
-  // Check server connection
-  if (influxClient.validateConnection()) {
-    Serial.print("Connected to InfluxDB: ");
-    Serial.println(influxClient.getServerUrl());
-  } else {
-    Serial.print("InfluxDB connection failed: ");
-    Serial.println(influxClient.getLastErrorMessage());
-  }
-
-  // Once ESPNow is successfully initialized, we will register the callback for data reception
-  esp_now_register_recv_cb(OnDataRecv);
-}
-
-void loop() {
-  // Maintain the MQTT connection
-  if (!mqttClient.connected()) {
+        char charMessage[jsonMessage.length() + 1];
+        jsonMessage.toCharArray(charMessage, sizeof(charMessage));
+        mqttClient.publish(MQTT_TOPIC, charMessage);
+      }
+    last_temperature = myData_bme680.temperature;
+    last_humidity = myData_bme680.humidity;
+    last_pressure = myData_bme680.pressure;
+    last_busVoltage = myData_ina219.busVoltage;
+    last_current = myData_ina219.current;
+    last_power = myData_ina219.power;
+    last_shuntVoltage = myData_ina219.shuntVoltage;
+    
+    if (!mqttClient.connected()) {
     Serial.println("Reconnecting to MQTT...");
     if (mqttClient.connect("ESP32Client", MQTT_USER, MQTT_PASSWORD)) {
       Serial.println("Connected to MQTT broker.");
@@ -197,5 +207,4 @@ void loop() {
   }
 
   mqttClient.loop();
-  // Add any other code you want to run in the loop...
 }
