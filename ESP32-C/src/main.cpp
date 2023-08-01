@@ -3,7 +3,7 @@
 #include <WiFi.h>
 #include <WiFiClient.h>
 
-uint8_t esp32_M_MAC[] = {0x94, 0xB9, 0x7E, 0xDA, 0x73, 0x74}; // ESP32-M MAC address
+uint8_t esp32_M_MAC[] = {0xF4, 0xCF, 0xA2, 0xA8, 0xCC, 0x2C}; // ESP32-M MAC address
 
 const char* ssid = "WIR-Guest";
 const char* password = "Guest@WIRgroup";
@@ -14,9 +14,8 @@ typedef struct struct_message_bme680 {
   float pressure;
 } struct_message_bme680;
 
+// Create a struct_message called myData
 struct_message_bme680 myData_bme680;
-
-WiFiClient wifiClient;
 
 const int ledPin = 2; // GPIO pin connected to the LED
 
@@ -43,16 +42,6 @@ void setup() {
   pinMode(ledPin, OUTPUT); // Set the LED pin as OUTPUT
 
   WiFi.mode(WIFI_AP_STA);
-
-  WiFi.begin(ssid, password);
-  while (WiFi.status() != WL_CONNECTED) {
-    delay(1000);
-    Serial.println("Setting as a Wi-Fi Station..");
-  }
-  Serial.print("Station IP Address: ");
-  Serial.println(WiFi.localIP());
-  Serial.print("Wi-Fi Channel: ");
-  Serial.println(WiFi.channel());
 
   if (esp_now_init() != ESP_OK) {
     Serial.println("Error initializing ESP-NOW");

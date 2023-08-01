@@ -37,7 +37,7 @@ typedef struct struct_message_bme680 {
 // Create a struct_message called myData
 struct_message_bme680 myData_bme680;
 
-float last_temperature, last_humidity, last_pressure;
+float last_temperature, last_humidity, last_pressure, last_temp_C;
 esp_now_peer_info_t peerInfo;
 
 // Structure for INA219 data
@@ -148,15 +148,13 @@ void setup()
         Serial.println(client.getLastErrorMessage());
     }
 
-    if (esp_now_init() != ESP_OK)
-    {
-        Serial.println("Error initializing ESP-NOW");
-        return;
-    }
-    Serial.println("esp now connected");
-    esp_now_register_recv_cb(OnDataRecv);
+if (esp_now_init() != ESP_OK) {
+    Serial.println("Error initializing ESP-NOW");
+    return;
+  }
     esp_now_register_send_cb(OnDataSent);
-    // Register peer
+
+  // Register peer
   memcpy(peerInfo.peer_addr, esp32_C_MAC, 6);
   peerInfo.channel = 0;
   peerInfo.encrypt = false;
@@ -166,6 +164,9 @@ void setup()
     Serial.println("Failed to add peer");
     return;
   }
+  Serial.println("esp now connected");
+  esp_now_register_recv_cb(OnDataRecv); // Register the callback for receiving data
+
 }
 
 void loop()
@@ -185,16 +186,7 @@ void loop()
         client.writePoint(sensorBMEReadings);
         sensorBMEReadings.clearFields();
 
-        // Send message via ESP-NOW
-  esp_err_t result = esp_now_send(esp32_C_MAC, (uint8_t *)&myData_bme680, sizeof(myData_bme680));
-
-  if (result == ESP_OK) {
-    Serial.println("Sent with success");
-  }
-  else {
-    Serial.println("Error sending the data");
-  }
-  delay(1000);
+    
 
         String jsonMessage = "{\"temperature\": " + String(myData_bme680.temperature) +
                          ", \"humidity\": " + String(myData_bme680.humidity) +
@@ -235,6 +227,21 @@ void loop()
     last_current = myData_ina219.current;
     last_power = myData_ina219.power;
     last_shuntVoltage = myData_ina219.shuntVoltage;
+
+    if (last_temp_C != last_temperature)
+    {// Send message via ESP-NOW
+  esp_err_t result = esp_now_send(esp32_C_MAC, (uint8_t *)&myData_bme680, sizeof(myData_bme680));
+
+  if (result == ESP_OK) {
+    Serial.println("Sent with success");
+  }
+  else {
+    Serial.println("Error sending the data");
+  }
+  delay(1000);}
+
+  last_temp_C = last_temperature;
+
 
 
     
