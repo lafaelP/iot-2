@@ -1,11 +1,8 @@
 import os
 from influxdb_client import InfluxDBClient
 import streamlit as st
-from dotenv import load_dotenv
 import plotly.graph_objects as go
 import time
-
-load_dotenv()
 
 INFLUX_URL = "https://us-east-1-1.aws.cloud2.influxdata.com"
 ORG = "a11b07c582b5ad36"
@@ -33,30 +30,42 @@ def get_weather_data(time_range=1000):
 
 def main():
     st.title("InfluxDB Data Viewer")
+
+    # Create a layout with multiple columns for time range, measurement, and field selection
+    col1, col2, col3 = st.columns(3)
+
+    # Time range selection
     time_range_options = [1, 5, 10, 30, 60, 120, 180]
     time_range_choices = [f"{time} minute{'s' if time > 1 else ''}" for time in time_range_options]
-
-    # Initialize session_state if not already initialized
     if 'time_range_minutes' not in st.session_state:
         st.session_state.time_range_minutes = time_range_choices[0]
-
-    time_range_minutes = st.selectbox("Select Time Range", time_range_choices, index=time_range_options.index(int(st.session_state.time_range_minutes.split()[0])))
-
-    # Update session_state with the selected time range
+    time_range_minutes = col1.selectbox("Select Time Range", time_range_choices, index=time_range_options.index(int(st.session_state.time_range_minutes.split()[0])))
     st.session_state.time_range_minutes = time_range_minutes
-
-    # Extract the number of minutes from the selected option
     selected_minutes = int(time_range_minutes.split()[0])
 
-    measurement_choice = st.selectbox("Select Measurement", ["BME measurements", "INA measurements"])
+    # Measurement selection
+    measurement_choice = col2.selectbox("Select Measurement", ["BME measurements", "INA measurements"])
+    if 'measurement_choice' not in st.session_state:
+        st.session_state.measurement_choice = measurement_choice
+    if st.session_state.measurement_choice != measurement_choice:
+        if measurement_choice == "BME measurements":
+            st.session_state.field_choice = "Humidity"
+        else:
+            st.session_state.field_choice = "busVoltage"
+        st.session_state.measurement_choice = measurement_choice
+
+    # Initialize field_choice if not present in session state
+    if 'field_choice' not in st.session_state:
+        st.session_state.field_choice = "Humidity"
+
+    # Field selection
     if measurement_choice == "BME measurements":
-        field_choice = st.selectbox("Select Field", ["Humidity", "Pressure", "Temperature"])
+        field_choice = col3.selectbox("Select Field", ["Humidity", "Pressure", "Temperature"], index=["Humidity", "Pressure", "Temperature"].index(st.session_state.field_choice))
         st.session_state.field_choice = field_choice
     elif measurement_choice == "INA measurements":
-        field_choice = st.selectbox("Select Field", ["busVoltage", "Current", "Power", "ShuntVoltage"])
+        field_choice = col3.selectbox("Select Field", ["busVoltage", "Current", "Power", "ShuntVoltage"], index=["busVoltage", "Current", "Power", "ShuntVoltage"].index(st.session_state.field_choice))
         st.session_state.field_choice = field_choice
 
-    # Use st.empty() to create an empty container for the graph
     chart_placeholder = st.empty()
 
     csv_button = None
@@ -67,15 +76,16 @@ def main():
 
         # Check if there's any data in the graph before displaying the download button
         if chart_placeholder.data:
-            # Get the data for download
+            # Get the data for download (same as before)
             download_data, _ = get_weather_data(selected_minutes)
-            # Create a download button for the CSV file
+            # Create a unique key for the download button using the measurement_choice and field_choice
             csv_filename = f"{measurement_choice}_{st.session_state.field_choice}_data.csv"
+            csv_key = f"{csv_filename}_{measurement_choice}"
             csv_data = download_data.to_csv(index=False, encoding='utf-8-sig')
             if csv_button is None:
-                csv_button = st.download_button("Download CSV", data=csv_data, file_name=csv_filename)
+                csv_button = st.download_button("Download CSV", data=csv_data, file_name=csv_filename, key=csv_key)
 
-        time.sleep(1)  # Wait for 10 seconds before updating again
+        time.sleep(1)  # Wait for 1 second before updating again
 
 def display_measurement_data(measurement_choice, time_range_minutes, field, chart_placeholder):
     # Same as before, but update the chart instead of creating a new one
