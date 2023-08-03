@@ -1,2 +1,3 @@
-venviot2/
+/venviot2
 .DS_Store
+requirements.txt
