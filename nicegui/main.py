@@ -4,16 +4,12 @@ import pandas as pd
 from influxdb_client import InfluxDBClient
 from nicegui import ui
 
-# InfluxDB configuration
 INFLUX_URL = "https://us-east-1-1.aws.cloud2.influxdata.com"
 ORG = "a11b07c582b5ad36"
 BUCKET = "iot-2"
 TOKEN = "WsDF2EMLG0BX27qAxysiWA3t4VTPka2XGp2krlne5vbD5HPjpC4PSlGqDiZf3hF6WZ5zQIOys1bdC7H93q0OLw=="
-
-# Create InfluxDB client
 client = InfluxDBClient(url=INFLUX_URL, token=TOKEN, org=ORG)
 
-# Initial time range in minutes
 initial_time_range = 1
 
 chart = go.Figure()
@@ -50,7 +46,6 @@ def download_csv(x_data, y_data, field_name):
     csv_data = df.to_csv(index=False)
     csv_filename = f"{field_name}_data.csv"
 
-    # Specify the absolute path where the CSV file should be saved
     save_path = os.path.join(os.path.expanduser("~"), "Downloads", csv_filename)
 
     with open(save_path, "w") as f:
@@ -61,4 +56,4 @@ csv_button = ui.button("Download CSV", on_click=lambda: download_csv(chart.data[
 
 ui.button("Update Chart", on_click=update_chart),
 
-ui.run(native=True)
+ui.run()
